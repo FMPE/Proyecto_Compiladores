@@ -1,0 +1,22 @@
+struct Point {
+    x: i32;
+    y: i32;
+}
+
+type IntArray = i32[10];
+
+fn create_point(a: i32, b: i32) {
+    let p: Point = Point { x: a, y: b };
+    return p;
+}
+
+fn main() {
+    let origin: Point = create_point(0, 0);
+    let mut distance: i32 = origin.x + origin.y;
+    
+    while (distance < 100) {
+        distance = distance * 2;
+    }
+    
+    println!("Final distance: {}", distance);
+}
