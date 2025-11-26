@@ -11,7 +11,6 @@ main:
  movq $0, -16(%rbp)
  movabsq $4614253070214989087, %rax
  movq %rax, %xmm0
- movq %rax, %xmm0
  cvtsd2ss %xmm0, %xmm0
  movd %xmm0, %eax
  movl %eax, -8(%rbp)

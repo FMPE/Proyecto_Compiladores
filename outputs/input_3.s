@@ -26,7 +26,7 @@ main:
  addq %rcx, %rax
  movl %eax, -8(%rbp)
  movq -16(%rbp), %rax
- addq $1, %rax
+ incq %rax
  movq %rax, -16(%rbp)
  jmp .L_for_begin_0
 .L_for_end_1:

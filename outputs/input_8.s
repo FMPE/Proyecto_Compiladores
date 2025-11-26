@@ -17,7 +17,6 @@ main:
  movq $12, %rcx
  rep movsb
  leaq -16(%rbp), %rax
- addq $0, %rax
  movl (%rax), %eax
  cltq
  movq %rax, %rsi

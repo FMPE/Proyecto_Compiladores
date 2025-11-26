@@ -10,6 +10,7 @@ programa = [
     "parser.cpp",
     "ast.cpp",
     "visitor.cpp",
+    "optimizer.cpp"
 ]
 
 # Compilar

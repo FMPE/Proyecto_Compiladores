@@ -7,24 +7,21 @@ main:
  pushq %rbp
  movq %rsp, %rbp
  subq $16, %rsp
- movq $0, -8(%rbp)
- movq $3, %rax
+ movq $5, %rax
+ movl %eax, -8(%rbp)
+ movl -8(%rbp), %eax
+ incq %rax
+ movl %eax, -8(%rbp)
+ movl -8(%rbp), %eax
+ incq %rax
+ movl %eax, -8(%rbp)
+ movl -8(%rbp), %eax
+ decq %rax
+ movl %eax, -8(%rbp)
+ movl -8(%rbp), %eax
+ shlq $1, %rax
  movl %eax, -16(%rbp)
- movq $7, %rax
- movl %eax, -12(%rbp)
- movq -16(%rbp), %rax
- movq %rax, -8(%rbp)
- leaq -8(%rbp), %rax
- movl (%rax), %eax
- cltq
- movq %rax, %rsi
- leaq print_fmt(%rip), %rdi
- movl $0, %eax
- call printf@PLT
- leaq -8(%rbp), %rax
- addq $4, %rax
- movl (%rax), %eax
- cltq
+ movl -16(%rbp), %eax
  movq %rax, %rsi
  leaq print_fmt(%rip), %rdi
  movl $0, %eax

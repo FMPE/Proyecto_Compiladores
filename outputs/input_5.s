@@ -33,7 +33,6 @@ main:
  call create_point
  movq %rax, -8(%rbp)
  leaq -8(%rbp), %rax
- addq $0, %rax
  movl (%rax), %eax
  cltq
  pushq %rax
@@ -55,14 +54,10 @@ main:
  movq $0, %rax
  setl %al
  movzbq %al, %rax
- cmpq $0, %rax
+ testq %rax, %rax
  je .L_while_end_1
  movl -16(%rbp), %eax
- pushq %rax
- movq $2, %rax
- movq %rax, %rcx
- popq %rax
- imulq %rcx, %rax
+ shlq $1, %rax
  movl %eax, -16(%rbp)
  jmp .L_while_begin_0
 .L_while_end_1:

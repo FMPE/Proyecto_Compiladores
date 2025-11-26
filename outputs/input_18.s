@@ -14,7 +14,6 @@ main:
  movq -16(%rbp), %rax
  movq %rax, -8(%rbp)
  leaq -8(%rbp), %rax
- addq $0, %rax
  movl (%rax), %eax
  cltq
  movq %rax, %rsi

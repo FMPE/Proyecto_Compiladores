@@ -9,7 +9,6 @@ suma_p:
  subq $8, %rsp
  movq %rdi, -8(%rbp)
  leaq -8(%rbp), %rax
- addq $0, %rax
  movl (%rax), %eax
  cltq
  pushq %rax

@@ -12,7 +12,7 @@ main:
  movq $0, %rax
  movq %rax, -16(%rbp)
  movq -8(%rbp), %rax
- cmpq $0, %rax
+ testq %rax, %rax
  je .L_else_0
  movq $1, %rax
  movq %rax, %rsi
@@ -28,7 +28,7 @@ main:
  call printf@PLT
 .L_endif_1:
  movq -16(%rbp), %rax
- cmpq $0, %rax
+ testq %rax, %rax
  je .L_else_2
  movq $1, %rax
  movq %rax, %rsi

@@ -24,7 +24,7 @@ fibonacci:
  movq $0, %rax
  setl %al
  movzbq %al, %rax
- cmpq $0, %rax
+ testq %rax, %rax
  je .L_while_end_1
  movl -16(%rbp), %eax
  pushq %rax
@@ -38,11 +38,7 @@ fibonacci:
  movl -40(%rbp), %eax
  movl %eax, -24(%rbp)
  movl -32(%rbp), %eax
- pushq %rax
- movq $1, %rax
- movq %rax, %rcx
- popq %rax
- addq %rcx, %rax
+ incq %rax
  movl %eax, -32(%rbp)
  jmp .L_while_begin_0
 .L_while_end_1:
@@ -72,7 +68,7 @@ main:
  movq $0, %rax
  setg %al
  movzbq %al, %rax
- cmpq $0, %rax
+ testq %rax, %rax
  je .L_and_false_4
  movl -40(%rbp), %eax
  pushq %rax
@@ -83,14 +79,14 @@ main:
  movq $0, %rax
  setle %al
  movzbq %al, %rax
- cmpq $0, %rax
+ testq %rax, %rax
  je .L_and_false_4
  movq $1, %rax
  jmp .L_and_end_5
 .L_and_false_4:
  movq $0, %rax
 .L_and_end_5:
- cmpq $0, %rax
+ testq %rax, %rax
  je .L_else_2
  movl -40(%rbp), %eax
  movq %rax, %rsi

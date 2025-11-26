@@ -14,7 +14,6 @@ swap:
  cltq
  movl %eax, -16(%rbp)
  leaq -8(%rbp), %rax
- addq $0, %rax
  movl (%rax), %eax
  cltq
  movl %eax, -12(%rbp)
@@ -40,7 +39,6 @@ main:
  call swap
  movq %rax, -24(%rbp)
  leaq -24(%rbp), %rax
- addq $0, %rax
  movl (%rax), %eax
  cltq
  movq %rax, %rsi
