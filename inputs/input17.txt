@@ -1,6 +1,14 @@
 type Arr = i32[5];
 
 fn main() {
-    let a: Arr;
-    println!("{}", 0);
+    let mut a: Arr;
+    
+    a[0] = 10;
+    a[1] = 20;
+    a[2] = 30;
+    a[4] = 50;
+
+    let sum: i32 = a[0] + a[1] + a[2];
+    println!("{}", sum);
+    println!("{}", a[4]);
 }

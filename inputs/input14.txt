@@ -5,7 +5,7 @@ fn main() {
     x = 12;
     y = 7;
 
-    if (x > y) {
+    if x > y {
         println!("{}", x);
     } else {
         println!("{}", y);

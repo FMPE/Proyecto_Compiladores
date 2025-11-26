@@ -659,68 +659,102 @@ int GenCodeVisitor::visit(VarDec* varDec) {
 
 int GenCodeVisitor::visit(BinaryExp* exp) {
 	if (exp->op == ASSIGN_OP) {
-		IdExp* idExp = dynamic_cast<IdExp*>(exp->left);
-		if (!idExp) {
-			throw std::runtime_error("Lado izquierdo de asignación no es un identificador");
-		}
-		string name = idExp->value;
+        if (IdExp* idExp = dynamic_cast<IdExp*>(exp->left)) {
+            string name = idExp->value;
 
-		exp->right->accept(this);
-        Type::TType rhsType = lastType;
+            exp->right->accept(this);
+            Type::TType rhsType = lastType;
 
-		if (auto* info = lookupSymbol(name)) {
-			if (!info->isMutable && info->initialized) {
-				// ...
-			}
-			info->initialized = true;
-            
-            string typeName = resolve_alias(info->typeName);
-            int size = 8;
-            if (typeName.find("[") != string::npos) {
-                 size_t open = typeName.find("[");
-                 size_t close = typeName.find("]");
-                 int count = stoi(typeName.substr(open + 1, close - open - 1));
-                 size = count * 4; 
-            } else if (globalStructLayouts.count(typeName)) {
-                 size = globalStructLayouts[typeName].size;
-            } else if (info->type == Type::F32) {
-                 size = 4;
-            } else if (info->type == Type::I32 || info->type == Type::U32) {
-                 size = 4;
-            }
+            if (auto* info = lookupSymbol(name)) {
+                if (!info->isMutable && info->initialized) {
+                    // ...
+                }
+                info->initialized = true;
+                
+                string typeName = resolve_alias(info->typeName);
+                int size = 8;
+                if (typeName.find("[") != string::npos) {
+                    size_t open = typeName.find("[");
+                    size_t close = typeName.find("]");
+                    int count = stoi(typeName.substr(open + 1, close - open - 1));
+                    size = count * 4; 
+                } else if (globalStructLayouts.count(typeName)) {
+                    size = globalStructLayouts[typeName].size;
+                } else if (info->type == Type::F32) {
+                    size = 4;
+                } else if (info->type == Type::I32 || info->type == Type::U32) {
+                    size = 4;
+                }
 
-            if (info->type == Type::F32 && (rhsType == Type::F64 || rhsType == Type::NOTYPE)) {
-                // Convert double to float
-                out << " movq %rax, %xmm0\n";
-                out << " cvtsd2ss %xmm0, %xmm0\n";
-                out << " movd %xmm0, %eax\n"; // Move 32 bits to eax
-                out << " movl %eax, " << info->offset << "(%rbp)\n";
+                if (info->type == Type::F32 && (rhsType == Type::F64 || rhsType == Type::NOTYPE)) {
+                    // Convert double to float
+                    out << " movq %rax, %xmm0\n";
+                    out << " cvtsd2ss %xmm0, %xmm0\n";
+                    out << " movd %xmm0, %eax\n"; // Move 32 bits to eax
+                    out << " movl %eax, " << info->offset << "(%rbp)\n";
+                    return 0;
+                }
+
+                if (size > 8) {
+                    // %rax holds source address
+                    out << " movq %rax, %rsi\n"; // Source
+                    out << " leaq " << info->offset << "(%rbp), %rdi\n"; // Destination
+                    out << " movq $" << size << ", %rcx\n"; // Count
+                    out << " rep movsb\n";
+                } else {
+                    if (size == 4) {
+                        out << " movl %eax, " << info->offset << "(%rbp)\n";
+                    } else {
+                        out << " movq %rax, " << info->offset << "(%rbp)\n";
+                    }
+                }
                 return 0;
             }
 
-            if (size > 8) {
-                // %rax holds source address
-                out << " movq %rax, %rsi\n"; // Source
-                out << " leaq " << info->offset << "(%rbp), %rdi\n"; // Destination
-                out << " movq $" << size << ", %rcx\n"; // Count
-                out << " rep movsb\n";
-            } else {
-                if (size == 4) {
-			        out << " movl %eax, " << info->offset << "(%rbp)\n";
-                } else {
-			        out << " movq %rax, " << info->offset << "(%rbp)\n";
-                }
+            auto globalIt = globalSymbols.find(name);
+            if (globalIt != globalSymbols.end()) {
+                out << " movq %rax, " << globalIt->second << "(%rip)\n";
+                return 0;
             }
-			return 0;
-		}
+            throw std::runtime_error("Identificador no declarado: " + name);
 
-		auto globalIt = globalSymbols.find(name);
-		if (globalIt != globalSymbols.end()) {
-			out << " movq %rax, " << globalIt->second << "(%rip)\n";
-			return 0;
-		}
-
-		throw std::runtime_error("Identificador no declarado: " + name);
+        } else if (ArrayAccessExp* arrExp = dynamic_cast<ArrayAccessExp*>(exp->left)) {
+             IdExp* idArr = dynamic_cast<IdExp*>(arrExp->array);
+             if (!idArr) throw std::runtime_error("Solo se soporta asignación a arrays con nombre directo");
+             
+             auto* info = lookupSymbol(idArr->value);
+             if (!info) throw std::runtime_error("Array no declarado: " + idArr->value);
+             
+             string typeName = resolve_alias(info->typeName);
+             int elemSize = 4;
+             if (typeName.find("i64") != string::npos || typeName.find("u64") != string::npos || typeName.find("f64") != string::npos) {
+                 elemSize = 8;
+             }
+             
+             out << " leaq " << info->offset << "(%rbp), %rax\n";
+             out << " pushq %rax\n"; // Save base
+             
+             arrExp->index->accept(this);
+             out << " movq %rax, %rcx\n"; // Index in rcx
+             out << " popq %rax\n"; // Base in rax
+             
+             out << " leaq (%rax, %rcx, " << elemSize << "), %rax\n";
+             out << " pushq %rax\n"; // Save element address
+             
+             exp->right->accept(this);
+             // Result in %rax
+             
+             out << " popq %rdi\n"; // Element address
+             if (elemSize == 4) {
+                 out << " movl %eax, (%rdi)\n";
+             } else {
+                 out << " movq %rax, (%rdi)\n";
+             }
+             
+             return 0;
+        } else {
+            throw std::runtime_error("Lado izquierdo de asignación no es un identificador o acceso a array");
+        }
 	}
 
 	if (exp->op == AND_OP) {
