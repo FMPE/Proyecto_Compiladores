@@ -6,7 +6,7 @@ print_float_fmt: .string "%f \n"
 fibonacci:
  pushq %rbp
  movq %rsp, %rbp
- subq $40, %rsp
+ subq $120, %rsp
  movq %rdi, -8(%rbp)
  movq $0, %rax
  movl %eax, -16(%rbp)
@@ -52,7 +52,7 @@ fibonacci:
 main:
  pushq %rbp
  movq %rsp, %rbp
- subq $40, %rsp
+ subq $120, %rsp
  movq $0, %rax
  movl %eax, -32(%rbp)
  movq $10, %rax

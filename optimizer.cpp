@@ -5,7 +5,27 @@
 #include <regex>
 
 // ============================================================================
-// Implementación DAG Optimizer (DESACTIVADO - tiene bugs)
+// ARQUITECTURA DE OPTIMIZACIONES DEL COMPILADOR
+// ============================================================================
+//
+// Este compilador implementa DOS optimizaciones:
+//
+// 1. DAG (Directed Acyclic Graph) - Eliminación de subexpresiones comunes
+//    ├── Ubicación: visitor.cpp (función generateExprSignature, lookupDAGCache, etc.)
+//    ├── Momento: Durante la generación de código
+//    └── Funcionamiento: Mantiene un cache de expresiones ya calculadas.
+//        Cuando encuentra "a + b" por segunda vez, reutiliza el valor guardado.
+//
+// 2. PEEPHOLE (Mirilla) - Optimizaciones locales de assembly
+//    ├── Ubicación: Este archivo (optimizer.cpp)
+//    ├── Momento: Post-procesamiento del código generado
+//    └── Funcionamiento: Busca patrones en el assembly y los reemplaza
+//        por versiones más eficientes (ej: addq $1 → incq)
+//
+// ============================================================================
+
+// ============================================================================
+// DAGOptimizer - Clase auxiliar (la optimización real está en visitor.cpp)
 // ============================================================================
 
 void DAGOptimizer::buildDAG(const std::vector<std::string>& instructions) {
@@ -19,20 +39,16 @@ void DAGOptimizer::parseInstruction(const std::string& instr) {
     std::string op;
     iss >> op;
     
-    // Ignorar etiquetas y directivas
     if (op.empty() || op[0] == '.' || op.back() == ':') return;
     
-    // MOVQ: destino = fuente
     if (op == "movq" || op == "movl") {
         std::string src, dst;
         iss >> src;
         if (!src.empty() && src.back() == ',') src.pop_back();
         iss >> dst;
         
-        // IMPORTANTE: Solo procesar si el destino es un registro puro
-        // NO procesar stores a memoria como movl %eax, -8(%rbp)
         if (dst.find('(') != std::string::npos) {
-            return; // Es un store a memoria, no procesar
+            return;
         }
         
         DAGNode* srcNode = nullptr;
@@ -52,7 +68,6 @@ void DAGOptimizer::parseInstruction(const std::string& instr) {
         return;
     }
     
-    // Operaciones aritméticas
     if (op == "addq" || op == "subq" || op == "imulq" || 
         op == "addl" || op == "subl" || op == "imull") {
         std::string src, dst;
@@ -60,7 +75,6 @@ void DAGOptimizer::parseInstruction(const std::string& instr) {
         if (!src.empty() && src.back() == ',') src.pop_back();
         iss >> dst;
         
-        // Solo procesar si destino es registro puro
         if (dst.find('(') != std::string::npos) {
             return;
         }
@@ -143,7 +157,6 @@ DAGNode* DAGOptimizer::createOperationNode(const std::string& op,
 }
 
 std::vector<std::string> DAGOptimizer::generateOptimizedCode() {
-    // DAG desactivado - retornar vacío para que se use el código original
     return std::vector<std::string>();
 }
 
@@ -174,7 +187,16 @@ bool DAGOptimizer::isImmediate(const std::string& operand) {
 }
 
 // ============================================================================
-// Implementación Peephole Optimizer (FUNCIONAL)
+// PEEPHOLE OPTIMIZER - OPTIMIZACIÓN ACTIVA
+// ============================================================================
+// Transforma patrones de instrucciones en versiones más eficientes:
+//   - addq $1, %reg  →  incq %reg     (más compacto y rápido)
+//   - subq $1, %reg  →  decq %reg     (más compacto y rápido)
+//   - imulq $2, %reg →  shlq $1, %reg (shift es más rápido que mul)
+//   - imulq $4, %reg →  shlq $2, %reg
+//   - imulq $8, %reg →  shlq $3, %reg
+//   - movq %reg, %reg → eliminado     (redundante)
+//   - addq $0, %reg  →  eliminado     (no hace nada)
 // ============================================================================
 
 std::vector<std::string> PeepholeOptimizer::optimize(
@@ -222,7 +244,7 @@ std::vector<std::string> PeepholeOptimizer::optimize(
         }
     }
     
-    // Eliminar líneas vacías
+    // Eliminar líneas vacías (marcadas para eliminación)
     std::vector<std::string> cleaned;
     for (const auto& instr : result) {
         if (!instr.empty()) {
@@ -233,6 +255,7 @@ std::vector<std::string> PeepholeOptimizer::optimize(
     return cleaned;
 }
 
+// Elimina movimientos redundantes: movq %rax, %rax
 bool PeepholeOptimizer::eliminateRedundantMoves(
     std::vector<std::string>& instructions, size_t& i) {
     
@@ -241,11 +264,10 @@ bool PeepholeOptimizer::eliminateRedundantMoves(
     std::string op, src, dst;
     iss >> op >> src >> dst;
     
-    // Eliminar movq %rax, %rax (mismo registro)
     if (op == "movq" || op == "movl") {
         if (!src.empty() && src.back() == ',') src.pop_back();
         if (src == dst && src[0] == '%') {
-            instructions[i] = "";  // Marcar para eliminar
+            instructions[i] = "";
             return true;
         }
     }
@@ -253,6 +275,7 @@ bool PeepholeOptimizer::eliminateRedundantMoves(
     return false;
 }
 
+// Combina operaciones con constantes consecutivas
 bool PeepholeOptimizer::combineConstantOperations(
     std::vector<std::string>& instructions, size_t& i) {
     
@@ -262,7 +285,6 @@ bool PeepholeOptimizer::combineConstantOperations(
     std::string op1, src1, dst1;
     iss1 >> op1 >> src1 >> dst1;
     
-    // movq $X, %reg seguido de addq $Y, %reg -> movq $(X+Y), %reg
     if (op1 == "movq" || op1 == "movl") {
         if (!src1.empty() && src1.back() == ',') src1.pop_back();
         
@@ -294,6 +316,7 @@ bool PeepholeOptimizer::combineConstantOperations(
     return false;
 }
 
+// Elimina código muerto
 bool PeepholeOptimizer::eliminateDeadCode(
     std::vector<std::string>& instructions, size_t& i) {
     
@@ -303,11 +326,9 @@ bool PeepholeOptimizer::eliminateDeadCode(
     std::string op1, src1, dst1;
     iss1 >> op1 >> src1 >> dst1;
     
-    // movq $X, %reg seguido de otro movq $Y, %reg -> eliminar el primero
     if (op1 == "movq" || op1 == "movl") {
         if (!src1.empty() && src1.back() == ',') src1.pop_back();
         
-        // Solo si es un mov a registro (no a memoria)
         if (dst1.find('(') != std::string::npos) return false;
         
         std::istringstream iss2(instructions[i + 1]);
@@ -315,7 +336,6 @@ bool PeepholeOptimizer::eliminateDeadCode(
         iss2 >> op2 >> src2 >> dst2;
         
         if ((op2 == "movq" || op2 == "movl") && dst1 == dst2) {
-            // El primer mov se sobrescribe, eliminarlo
             instructions[i] = "";
             return true;
         }
@@ -324,6 +344,7 @@ bool PeepholeOptimizer::eliminateDeadCode(
     return false;
 }
 
+// STRENGTH REDUCTION - Reemplaza operaciones costosas por equivalentes rápidas
 bool PeepholeOptimizer::strengthReduction(
     std::vector<std::string>& instructions, size_t& i) {
     
@@ -333,48 +354,48 @@ bool PeepholeOptimizer::strengthReduction(
     
     if (!src.empty() && src.back() == ',') src.pop_back();
     
-    // addq $1, %rax -> incq %rax
+    // addq $1, %rax → incq %rax
     if ((op == "addq" || op == "addl") && src == "$1") {
         std::string newOp = (op == "addq") ? "incq" : "incl";
         instructions[i] = " " + newOp + " " + dst;
         return true;
     }
     
-    // subq $1, %rax -> decq %rax
+    // subq $1, %rax → decq %rax
     if ((op == "subq" || op == "subl") && src == "$1") {
         std::string newOp = (op == "subq") ? "decq" : "decl";
         instructions[i] = " " + newOp + " " + dst;
         return true;
     }
     
-    // imulq $2, %rax -> shlq $1, %rax
+    // imulq $2, %rax → shlq $1, %rax
     if ((op == "imulq" || op == "imull") && src == "$2") {
         std::string newOp = (op == "imulq") ? "shlq" : "shll";
         instructions[i] = " " + newOp + " $1, " + dst;
         return true;
     }
     
-    // imulq $4, %rax -> shlq $2, %rax
+    // imulq $4, %rax → shlq $2, %rax
     if ((op == "imulq" || op == "imull") && src == "$4") {
         std::string newOp = (op == "imulq") ? "shlq" : "shll";
         instructions[i] = " " + newOp + " $2, " + dst;
         return true;
     }
     
-    // imulq $8, %rax -> shlq $3, %rax
+    // imulq $8, %rax → shlq $3, %rax
     if ((op == "imulq" || op == "imull") && src == "$8") {
         std::string newOp = (op == "imulq") ? "shlq" : "shll";
         instructions[i] = " " + newOp + " $3, " + dst;
         return true;
     }
     
-    // addq $0, %rax -> eliminar (no hace nada)
+    // addq $0, %rax → eliminar
     if ((op == "addq" || op == "addl" || op == "subq" || op == "subl") && src == "$0") {
         instructions[i] = "";
         return true;
     }
     
-    // imulq $1, %rax -> eliminar (no hace nada)
+    // imulq $1, %rax → eliminar
     if ((op == "imulq" || op == "imull") && src == "$1") {
         instructions[i] = "";
         return true;
@@ -385,10 +406,10 @@ bool PeepholeOptimizer::strengthReduction(
 
 bool PeepholeOptimizer::constantPropagation(
     std::vector<std::string>& instructions, size_t& i) {
-    // Implementación básica - se puede expandir
     return false;
 }
 
+// cmpq $0, %rax → testq %rax, %rax (más eficiente)
 bool PeepholeOptimizer::optimizeZeroComparisons(
     std::vector<std::string>& instructions, size_t& i) {
     
@@ -398,7 +419,6 @@ bool PeepholeOptimizer::optimizeZeroComparisons(
     std::string op1, src1, dst1;
     iss1 >> op1 >> src1 >> dst1;
     
-    // cmpq $0, %rax puede optimizarse a testq %rax, %rax
     if (op1 == "cmpq" || op1 == "cmpl") {
         if (!src1.empty() && src1.back() == ',') src1.pop_back();
         
@@ -413,8 +433,7 @@ bool PeepholeOptimizer::optimizeZeroComparisons(
 }
 
 bool PeepholeOptimizer::isMovInstruction(const std::string& instr) {
-    return instr == "movq" || instr == "movl" || instr == "movb" || 
-           instr == "movw";
+    return instr == "movq" || instr == "movl" || instr == "movb" || instr == "movw";
 }
 
 bool PeepholeOptimizer::isArithmeticInstruction(const std::string& instr) {
@@ -432,7 +451,7 @@ long long PeepholeOptimizer::getImmediateValue(const std::string& operand) {
 }
 
 // ============================================================================
-// Implementación Basic Block Analyzer
+// Basic Block Analyzer
 // ============================================================================
 
 std::vector<BasicBlock> BasicBlockAnalyzer::identifyBasicBlocks(
@@ -483,7 +502,6 @@ bool BasicBlockAnalyzer::isBranch(const std::string& instr) {
     std::istringstream iss(instr);
     std::string op;
     iss >> op;
-    
     return op == "jmp" || op == "je" || op == "jne" || op == "jl" || 
            op == "jg" || op == "jle" || op == "jge" || op == "call";
 }
@@ -492,12 +510,11 @@ bool BasicBlockAnalyzer::isReturn(const std::string& instr) {
     std::istringstream iss(instr);
     std::string op;
     iss >> op;
-    
     return op == "ret" || op == "leave";
 }
 
 // ============================================================================
-// Implementación Code Optimizer (Wrapper)
+// CodeOptimizer - Wrapper principal que coordina las optimizaciones
 // ============================================================================
 
 std::vector<std::string> CodeOptimizer::optimizeCode(
@@ -506,20 +523,16 @@ std::vector<std::string> CodeOptimizer::optimizeCode(
     stats.originalInstructions = code.size();
     std::vector<std::string> result = code;
     
-    // Solo aplicar Peephole (DAG está desactivado porque tiene bugs)
+    // Aplicar optimización Peephole (post-procesamiento)
     if (enablePeephole) {
         size_t beforePeephole = result.size();
         result = peepholeOpt.optimize(result);
         stats.peepholeReductions = beforePeephole - result.size();
     }
     
-    // DAG desactivado por ahora - destruye el código
-    // TODO: Implementar DAG correctamente que preserve stores a memoria
-    /*
-    if (enableDAG) {
-        // ... código DAG desactivado ...
-    }
-    */
+    // NOTA: La optimización DAG se realiza en visitor.cpp durante
+    // la generación de código (ver funciones generateExprSignature,
+    // lookupDAGCache, saveToDAGCache en visitor.cpp)
     
     stats.optimizedInstructions = result.size();
     return result;

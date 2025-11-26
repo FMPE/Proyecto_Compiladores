@@ -6,7 +6,7 @@ print_float_fmt: .string "%f \n"
 swap:
  pushq %rbp
  movq %rsp, %rbp
- subq $16, %rsp
+ subq $96, %rsp
  movq %rdi, -8(%rbp)
  leaq -8(%rbp), %rax
  addq $4, %rax
@@ -27,7 +27,7 @@ swap:
 main:
  pushq %rbp
  movq %rsp, %rbp
- subq $24, %rsp
+ subq $104, %rsp
  movq $10, %rax
  movl %eax, -16(%rbp)
  movq $20, %rax

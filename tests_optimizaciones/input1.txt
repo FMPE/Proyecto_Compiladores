@@ -1,8 +1,8 @@
 fn main() {
-       let mut x: i32 = 5;
-       x = x + 1;
-       x = x + 1;
-       x = x - 1;
-       let mut y: i32 = x * 2;
-       println!("{}", y);
-   }
+    let mut a: i32 = 5;
+    let mut b: i32 = 10;
+    let mut t1: i32 = a + b;
+    let mut t2: i32 = a + b;
+    println!("{}", t1);
+    println!("{}", t2);
+}

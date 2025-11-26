@@ -6,7 +6,7 @@ print_float_fmt: .string "%f \n"
 main:
  pushq %rbp
  movq %rsp, %rbp
- subq $32, %rsp
+ subq $112, %rsp
  leaq -24(%rbp), %rax
  pushq %rax
  movq $0, %rax

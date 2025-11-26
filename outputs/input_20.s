@@ -6,7 +6,7 @@ print_float_fmt: .string "%f \n"
 make_big:
  pushq %rbp
  movq %rsp, %rbp
- subq $16, %rsp
+ subq $96, %rsp
  movq $1, %rax
  movl %eax, -16(%rbp)
  movq $2, %rax
@@ -23,7 +23,7 @@ make_big:
 main:
  pushq %rbp
  movq %rsp, %rbp
- subq $16, %rsp
+ subq $96, %rsp
  call make_big
  movq %rax, %rsi
  leaq -16(%rbp), %rdi

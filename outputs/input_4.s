@@ -6,7 +6,7 @@ print_float_fmt: .string "%f \n"
 suma:
  pushq %rbp
  movq %rsp, %rbp
- subq $16, %rsp
+ subq $96, %rsp
  movq %rdi, -8(%rbp)
  movq %rsi, -16(%rbp)
  movq -8(%rbp), %rax
@@ -24,7 +24,7 @@ suma:
 main:
  pushq %rbp
  movq %rsp, %rbp
- subq $16, %rsp
+ subq $96, %rsp
  movq $0, -8(%rbp)
  movq $0, -16(%rbp)
  movq $10000000000, %rax

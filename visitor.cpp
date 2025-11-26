@@ -8,6 +8,7 @@
 #include <cstring>
 #include <cstdint>
 #include <sstream>
+#include <algorithm>
 
 using std::string;
 using std::vector;
@@ -64,13 +65,97 @@ SymbolInfo* GenCodeVisitor::lookupSymbol(const string& name) {
 }
 
 // =============================================================================
-// NUEVAS IMPLEMENTACIONES PARA OPTIMIZACIÓN
+// IMPLEMENTACIÓN DE OPTIMIZACIÓN DAG
+// =============================================================================
+
+// Genera una firma única para una expresión (para el cache DAG)
+std::string GenCodeVisitor::generateExprSignature(Exp* exp) {
+    if (!exp) return "";
+    
+    if (NumberExp* num = dynamic_cast<NumberExp*>(exp)) {
+        return "NUM:" + std::to_string(num->value);
+    }
+    
+    if (BoolExp* b = dynamic_cast<BoolExp*>(exp)) {
+        return "BOOL:" + std::to_string(b->valor ? 1 : 0);
+    }
+    
+    if (IdExp* id = dynamic_cast<IdExp*>(exp)) {
+        return "ID:" + id->value;
+    }
+    
+    if (BinaryExp* bin = dynamic_cast<BinaryExp*>(exp)) {
+        string leftSig = generateExprSignature(bin->left);
+        string rightSig = generateExprSignature(bin->right);
+        string opStr;
+        switch (bin->op) {
+            case PLUS_OP: opStr = "+"; break;
+            case MINUS_OP: opStr = "-"; break;
+            case MUL_OP: opStr = "*"; break;
+            case DIV_OP: opStr = "/"; break;
+            default: return ""; // No cachear otras operaciones
+        }
+        return "BIN:(" + leftSig + ")" + opStr + "(" + rightSig + ")";
+    }
+    
+    // No cachear otras expresiones (llamadas a funciones, arrays, etc.)
+    return "";
+}
+
+// Busca una expresión en el cache DAG
+DAGCacheEntry* GenCodeVisitor::lookupDAGCache(const std::string& signature) {
+    if (!dagEnabled || signature.empty()) return nullptr;
+    
+    auto it = dagCache.find(signature);
+    if (it != dagCache.end()) {
+        return &(it->second);
+    }
+    return nullptr;
+}
+
+// Guarda una expresión en el cache DAG
+void GenCodeVisitor::saveToDAGCache(const std::string& signature, int offset, Type::TType type) {
+    if (!dagEnabled || signature.empty()) return;
+    
+    DAGCacheEntry entry;
+    entry.offset = offset;
+    entry.type = type;
+    entry.signature = signature;
+    dagCache[signature] = entry;
+}
+
+// Invalida entradas del cache que dependen de una variable
+void GenCodeVisitor::invalidateDAGCache(const std::string& varName) {
+    if (!dagEnabled) return;
+    
+    string pattern = "ID:" + varName;
+    
+    // Eliminar todas las entradas que contienen esta variable
+    auto it = dagCache.begin();
+    while (it != dagCache.end()) {
+        if (it->first.find(pattern) != string::npos) {
+            it = dagCache.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+// Limpia todo el cache DAG
+void GenCodeVisitor::clearDAGCache() {
+    dagCache.clear();
+    dagHits = 0;
+    dagMisses = 0;
+}
+
+// =============================================================================
+// IMPLEMENTACIÓN DE BUFFERING PARA PEEPHOLE
 // =============================================================================
 
 void GenCodeVisitor::startBuffering() {
     if (optimizationsEnabled) {
         bufferingOutput = true;
-        tempOutput.str("");  // Limpiar el buffer
+        tempOutput.str("");
         tempOutput.clear();
     }
 }
@@ -80,7 +165,6 @@ void GenCodeVisitor::flushOptimizedBuffer() {
     
     bufferingOutput = false;
     
-    // Obtener el código generado
     string generatedCode = tempOutput.str();
     
     if (!optimizationsEnabled || generatedCode.empty()) {
@@ -88,7 +172,6 @@ void GenCodeVisitor::flushOptimizedBuffer() {
         return;
     }
     
-    // Convertir el código a vector de líneas
     std::vector<std::string> instructions;
     std::istringstream iss(generatedCode);
     std::string line;
@@ -98,11 +181,9 @@ void GenCodeVisitor::flushOptimizedBuffer() {
         }
     }
     
-    // Aplicar optimizaciones
     optimizer.resetStats();
     std::vector<std::string> optimized = optimizer.optimizeCode(instructions);
     
-    // Escribir código optimizado
     for (const auto& instr : optimized) {
         out << instr << "\n";
     }
@@ -113,10 +194,8 @@ void GenCodeVisitor::printOptimizationStats(std::ostream& os) {
     os << "=== Estadísticas de Optimización ===\n";
     os << "Instrucciones originales: " << stats.originalInstructions << "\n";
     os << "Instrucciones optimizadas: " << stats.optimizedInstructions << "\n";
-    os << "Reducciones por DAG: " << stats.dagReductions << "\n";
+    os << "Subexpresiones reutilizadas (DAG): " << dagHits << "\n";
     os << "Reducciones por Peephole: " << stats.peepholeReductions << "\n";
-    int total = stats.originalInstructions - stats.optimizedInstructions;
-    os << "Total reducido: " << total << " instrucciones\n";
 }
 
 // -----------------------------------------------------------------------------
@@ -174,6 +253,9 @@ int GenCodeVisitor::visit(FunDec* function) {
     symbols.clear();
     symbols.push_scope();
     nextStackOffset = -8;
+    
+    // Limpiar cache DAG al inicio de cada función
+    clearDAGCache();
 
     currentFunctionName = function->nombre;
     currentReturnLabel = ".L_return_" + function->nombre;
@@ -188,6 +270,9 @@ int GenCodeVisitor::visit(FunDec* function) {
     if (it != frameReservation.end()) {
         reservedSlots = it->second;
     }
+    // Agregar slots extra para cache DAG de subexpresiones
+    reservedSlots += 10; // Espacio extra para subexpresiones cacheadas
+    
     int frameBytes = reservedSlots * 8;
     if (frameBytes > 0) {
         out << " subq $" << frameBytes << ", %rsp\n";
@@ -204,14 +289,12 @@ int GenCodeVisitor::visit(FunDec* function) {
         out << " movq " << kArgRegisters[idx] << ", " << info.offset << "(%rbp)\n";
     }
 
-    // *** ACTIVAR BUFFERING PARA EL CUERPO DE LA FUNCIÓN ***
     startBuffering();
 
     if (function->cuerpo) {
         function->cuerpo->accept(this);
     }
 
-    // *** FLUSH Y OPTIMIZAR ***
     flushOptimizedBuffer();
 
     out << " movq $0, %rax\n";
@@ -288,7 +371,29 @@ int GenCodeVisitor::visit(LetStm* letStmt) {
     symbols.declare(letStmt->name, tmpl);
 
     if (letStmt->init) {
-        letStmt->init->accept(this);
+        // Verificar si la expresión de inicialización está en cache DAG
+        string signature = generateExprSignature(letStmt->init);
+        DAGCacheEntry* cached = lookupDAGCache(signature);
+        
+        if (cached) {
+            // ¡Reutilizar valor del cache DAG!
+            dagHits++;
+            targetOut << " # DAG: reutilizando subexpresion\n";
+            if (cached->type == Type::I32 || cached->type == Type::U32 || cached->type == Type::F32) {
+                targetOut << " movl " << cached->offset << "(%rbp), %eax\n";
+            } else {
+                targetOut << " movq " << cached->offset << "(%rbp), %rax\n";
+            }
+        } else {
+            dagMisses++;
+            letStmt->init->accept(this);
+            
+            // Guardar en cache DAG si es una expresión binaria
+            if (!signature.empty() && dynamic_cast<BinaryExp*>(letStmt->init)) {
+                saveToDAGCache(signature, tmpl.offset, tmpl.type);
+            }
+        }
+        
         Type::TType rhsType = lastType;
 
         if (tmpl.type == Type::F32 && (rhsType == Type::F64 || rhsType == Type::NOTYPE)) {
@@ -322,6 +427,9 @@ int GenCodeVisitor::visit(IfStm* ifStmt) {
 
     string elseLabel = makeLabel("else");
     string endLabel = makeLabel("endif");
+    
+    // Limpiar cache DAG en control de flujo (conservador)
+    clearDAGCache();
 
     ifStmt->condition->accept(this);
     targetOut << " cmpq $0, %rax\n";
@@ -333,10 +441,12 @@ int GenCodeVisitor::visit(IfStm* ifStmt) {
     targetOut << " jmp " << endLabel << "\n";
 
     targetOut << elseLabel << ":\n";
+    clearDAGCache(); // Limpiar al entrar en else
     if (ifStmt->elseBlock) {
         ifStmt->elseBlock->accept(this);
     }
     targetOut << endLabel << ":\n";
+    clearDAGCache(); // Limpiar al salir
     return 0;
 }
 
@@ -345,6 +455,9 @@ int GenCodeVisitor::visit(WhileStm* whileStmt) {
 
     string startLabel = makeLabel("while_begin");
     string endLabel = makeLabel("while_end");
+    
+    // Limpiar cache DAG en loops
+    clearDAGCache();
 
     targetOut << startLabel << ":\n";
     whileStmt->condition->accept(this);
@@ -357,6 +470,7 @@ int GenCodeVisitor::visit(WhileStm* whileStmt) {
 
     targetOut << " jmp " << startLabel << "\n";
     targetOut << endLabel << ":\n";
+    clearDAGCache();
     return 0;
 }
 
@@ -364,6 +478,7 @@ int GenCodeVisitor::visit(ForStm* forStmt) {
     std::ostream& targetOut = bufferingOutput ? tempOutput : out;
 
     symbols.push_scope();
+    clearDAGCache();
 
     SymbolInfo tmpl;
     tmpl.isMutable = true;
@@ -403,6 +518,7 @@ int GenCodeVisitor::visit(ForStm* forStmt) {
     targetOut << endLabel << ":\n";
 
     symbols.pop_scope();
+    clearDAGCache();
     return 0;
 }
 
@@ -447,6 +563,9 @@ int GenCodeVisitor::visit(AssignStm* assignStmt) {
     }
 
     assignStmt->e->accept(this);
+    
+    // IMPORTANTE: Invalidar cache DAG cuando se modifica una variable
+    invalidateDAGCache(assignStmt->id);
 
     if (auto* info = lookupSymbol(assignStmt->id)) {
         info->initialized = true;
@@ -504,6 +623,9 @@ int GenCodeVisitor::visit(BinaryExp* exp) {
 
             exp->right->accept(this);
             Type::TType rhsType = lastType;
+            
+            // Invalidar cache DAG para esta variable
+            invalidateDAGCache(name);
 
             if (auto* info = lookupSymbol(name)) {
                 info->initialized = true;
@@ -609,14 +731,12 @@ int GenCodeVisitor::visit(BinaryExp* exp) {
         return 0;
     }
 
-    // OPTIMIZACIÓN: Si el operando derecho es una constante, generar código directo
-    // Esto permite que Peephole optimice addq $1 -> incq, imulq $2 -> shlq, etc.
+    // OPTIMIZACIÓN PEEPHOLE: Si el operando derecho es una constante, generar código directo
     NumberExp* rightNum = dynamic_cast<NumberExp*>(exp->right);
     if (rightNum && (exp->op == PLUS_OP || exp->op == MINUS_OP || exp->op == MUL_OP)) {
         exp->left->accept(this);
         Type::TType leftType = lastType;
         
-        // Solo optimizar para enteros, no floats
         if (leftType != Type::F32 && leftType != Type::F64) {
             switch (exp->op) {
                 case PLUS_OP:
@@ -637,7 +757,7 @@ int GenCodeVisitor::visit(BinaryExp* exp) {
         }
     }
 
-    // Código general para expresiones que no son optimizables directamente
+    // Código general para otras expresiones
     exp->left->accept(this);
     Type::TType leftType = lastType;
     targetOut << " pushq %rax\n";
@@ -948,7 +1068,7 @@ int GenCodeVisitor::visit(FloatExp* exp) {
 }
 
 // =============================================================================
-// TypeCheckerVisitor - Mantener implementaciones existentes
+// TypeCheckerVisitor - Implementaciones
 // =============================================================================
 
 int TypeCheckerVisitor::analyze(Program* program) {

@@ -6,7 +6,7 @@ print_float_fmt: .string "%f \n"
 suma_p:
  pushq %rbp
  movq %rsp, %rbp
- subq $8, %rsp
+ subq $88, %rsp
  movq %rdi, -8(%rbp)
  leaq -8(%rbp), %rax
  movl (%rax), %eax
@@ -28,7 +28,7 @@ suma_p:
 main:
  pushq %rbp
  movq %rsp, %rbp
- subq $16, %rsp
+ subq $96, %rsp
  movq $0, -8(%rbp)
  movq $10, %rax
  movl %eax, -16(%rbp)

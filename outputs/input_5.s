@@ -6,7 +6,7 @@ print_float_fmt: .string "%f \n"
 create_point:
  pushq %rbp
  movq %rsp, %rbp
- subq $32, %rsp
+ subq $112, %rsp
  movq %rdi, -8(%rbp)
  movq %rsi, -16(%rbp)
  movl -8(%rbp), %eax
@@ -25,7 +25,7 @@ create_point:
 main:
  pushq %rbp
  movq %rsp, %rbp
- subq $16, %rsp
+ subq $96, %rsp
  movq $0, %rax
  movq %rax, %rsi
  movq $5, %rax

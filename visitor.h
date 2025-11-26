@@ -2,13 +2,13 @@
 #define VISITOR_H
 #include "ast.h"
 #include "environment.h"
-#include "optimizer.h"  // NUEVO: Incluir optimizador
+#include "optimizer.h"
 #include <list>
 #include <ostream>
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include <sstream>  // NUEVO
+#include <sstream>
 
 struct SymbolInfo {
     int offset = 0;
@@ -16,6 +16,13 @@ struct SymbolInfo {
     std::string typeName;
     bool isMutable = false;
     bool initialized = false;
+};
+
+// Estructura para el cache DAG de subexpresiones comunes
+struct DAGCacheEntry {
+    int offset;           // Offset en stack donde está guardado el resultado
+    Type::TType type;     // Tipo del resultado
+    std::string signature; // Firma de la expresión
 };
 
 class Visitor {
@@ -116,9 +123,9 @@ public:
 
     Type::TType lastType = Type::NOTYPE;
     
-    // NUEVO: Métodos para optimización
+    // Métodos para optimización
     void enableOptimizations(bool enable) { optimizationsEnabled = enable; }
-    void enableDAGOptimization(bool enable) { optimizer.setDAGOptimization(enable); }
+    void enableDAGOptimization(bool enable) { dagEnabled = enable; optimizer.setDAGOptimization(enable); }
     void enablePeepholeOptimization(bool enable) { optimizer.setPeepholeOptimization(enable); }
     void printOptimizationStats(std::ostream& os);
 
@@ -140,14 +147,41 @@ private:
     const SymbolInfo* lookupSymbol(const std::string& name) const;
     SymbolInfo* lookupSymbol(const std::string& name);
     
-    // NUEVO: Sistema de optimización
+    // Sistema de optimización Peephole
     bool optimizationsEnabled = true;
     CodeOptimizer optimizer;
-    std::ostringstream tempOutput;  // Buffer temporal para capturar código antes de optimizar
+    std::ostringstream tempOutput;
     bool bufferingOutput = false;
     
     void startBuffering();
     void flushOptimizedBuffer();
+    
+    // ============================================
+    // NUEVO: Sistema de optimización DAG
+    // ============================================
+    bool dagEnabled = true;
+    
+    // Cache de subexpresiones comunes: signature -> offset en stack
+    std::unordered_map<std::string, DAGCacheEntry> dagCache;
+    
+    // Contador de subexpresiones reutilizadas (para estadísticas)
+    int dagHits = 0;
+    int dagMisses = 0;
+    
+    // Genera una firma única para una expresión
+    std::string generateExprSignature(Exp* exp);
+    
+    // Busca una expresión en el cache DAG
+    DAGCacheEntry* lookupDAGCache(const std::string& signature);
+    
+    // Guarda una expresión en el cache DAG
+    void saveToDAGCache(const std::string& signature, int offset, Type::TType type);
+    
+    // Invalida entradas del cache que dependen de una variable
+    void invalidateDAGCache(const std::string& varName);
+    
+    // Limpia todo el cache DAG
+    void clearDAGCache();
 };
 
 #endif // VISITOR_H
