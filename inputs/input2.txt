@@ -1,0 +1,16 @@
+fn main() {
+    let mut x: bool = true;
+    let mut y: bool = false;
+    
+    if (x) {
+        println!("{}", 1);
+    } else {
+        println!("{}", 0);
+    }
+
+    if (y) {
+        println!("{}", 1);
+    } else {
+        println!("{}", 0);
+    }
+}

@@ -1,0 +1,6 @@
+type MyInt = i32;
+
+fn main() {
+    let x: MyInt = 100;
+    println!("{}", x);
+}

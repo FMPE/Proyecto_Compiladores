@@ -1,0 +1,16 @@
+struct P {
+    x: i32;
+    y: i32;
+}
+
+fn crear(a: i32, b: i32) -> P {
+    return P { x: a, y: b };
+}
+
+fn main() {
+    let mut p: P;
+    p = crear(5, 9);
+
+    println!("{}", p.x);
+    println!("{}", p.y);
+}

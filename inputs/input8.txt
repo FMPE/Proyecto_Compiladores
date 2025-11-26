@@ -1,0 +1,12 @@
+struct Status {
+    active: bool;
+    id: i64;
+}
+
+fn main() {
+    let mut s: Status;
+    s = Status { active: true, id: 1234567890123 };
+
+    println!("{}", s.active);
+    println!("{}", s.id);
+}

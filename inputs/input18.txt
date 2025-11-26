@@ -1,0 +1,11 @@
+struct Point {
+    x: i32;
+    y: i32;
+}
+
+type Pt = Point;
+
+fn main() {
+    let p: Pt = Pt { x: 10, y: 20 };
+    println!("{}", p.x);
+}

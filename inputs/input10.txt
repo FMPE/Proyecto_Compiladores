@@ -1,0 +1,15 @@
+struct Pair {
+    a: i32;
+    b: i32;
+}
+
+fn suma_p(p: Pair) -> i32 {
+    return p.a + p.b;
+}
+
+fn main() {
+    let mut t: Pair;
+    t = Pair { a: 10, b: 20 };
+
+    println!("{}", suma_p(t));
+}

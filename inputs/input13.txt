@@ -1,0 +1,13 @@
+fn main() {
+    let mut x: f32;
+    let mut y: f64;
+
+    x = 3.14;
+    y = 2.71828;
+
+    let mut z: f32 = x + 1.5;
+    let mut w: f64 = y * 2.0;
+
+    println!("{}", z);
+    println!("{}", w);
+}

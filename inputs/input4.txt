@@ -1,0 +1,11 @@
+fn suma(a: i64, b: i64) -> i64 {
+    a + b
+}
+
+fn main() {
+    let mut x: i64;
+    let mut y: i64;
+    x = 10000000000;
+    y = 20000000000;
+    println!("{}", suma(x, y));
+}

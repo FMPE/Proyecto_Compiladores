@@ -1,0 +1,18 @@
+struct Punto {
+    x: i32;
+    y: i32;
+}
+
+fn mayor(a: i32, b: i32) -> i32 {
+    if (a > b) {
+        return a;
+    }
+    return b;
+}
+
+fn main() {
+    let mut p: Punto;
+    p = Punto { x: 3, y: 10 };
+
+    println!("{}", mayor(p.x, p.y));
+}

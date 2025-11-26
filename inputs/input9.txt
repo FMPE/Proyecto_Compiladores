@@ -1,0 +1,12 @@
+struct S {
+    a: i32;
+    b: i32;
+}
+
+fn main() {
+    let mut x: S;
+    x = S { a: 1 + 2, b: 10 - 3 };
+
+    println!("{}", x.a);
+    println!("{}", x.b);
+}

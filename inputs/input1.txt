@@ -1,0 +1,9 @@
+fn main() {
+    let mut x: i32 = 1;
+    let mut y: i32 = 10;
+    let mut z: i64 = 1000000;
+    x = 20;
+    println("Value of x: ", x);
+    println("Value of y: ", y);
+    println("Value of z: ", z);
+}

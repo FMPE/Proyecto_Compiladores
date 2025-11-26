@@ -1,0 +1,6 @@
+type Arr = i32[5];
+
+fn main() {
+    let a: Arr;
+    println!("{}", 0);
+}
