@@ -2,11 +2,13 @@
 #define VISITOR_H
 #include "ast.h"
 #include "environment.h"
+#include "optimizer.h"  // NUEVO: Incluir optimizador
 #include <list>
 #include <ostream>
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <sstream>  // NUEVO
 
 struct SymbolInfo {
     int offset = 0;
@@ -113,6 +115,12 @@ public:
     int visit(FieldAccessExp* exp) override;
 
     Type::TType lastType = Type::NOTYPE;
+    
+    // NUEVO: Métodos para optimización
+    void enableOptimizations(bool enable) { optimizationsEnabled = enable; }
+    void enableDAGOptimization(bool enable) { optimizer.setDAGOptimization(enable); }
+    void enablePeepholeOptimization(bool enable) { optimizer.setPeepholeOptimization(enable); }
+    void printOptimizationStats(std::ostream& os);
 
 private:
     std::ostream& out;
@@ -131,9 +139,15 @@ private:
     SymbolInfo declareLocal(const std::string& name, const SymbolInfo& infoTemplate);
     const SymbolInfo* lookupSymbol(const std::string& name) const;
     SymbolInfo* lookupSymbol(const std::string& name);
+    
+    // NUEVO: Sistema de optimización
+    bool optimizationsEnabled = true;
+    CodeOptimizer optimizer;
+    std::ostringstream tempOutput;  // Buffer temporal para capturar código antes de optimizar
+    bool bufferingOutput = false;
+    
+    void startBuffering();
+    void flushOptimizedBuffer();
 };
-
-
-
 
 #endif // VISITOR_H

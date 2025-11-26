@@ -418,6 +418,8 @@ int GenCodeVisitor::visit(BlockStm* block) {
 }
 
 int GenCodeVisitor::visit(LetStm* letStmt) {
+	std::ostream& targetOut = bufferingOutput ? tempOutput : out;
+
 	if (!insideFunction) {
 		if (globalSymbols.find(letStmt->name) == globalSymbols.end()) {
 			globalSymbols.emplace(letStmt->name, letStmt->name);
@@ -444,13 +446,7 @@ int GenCodeVisitor::visit(LetStm* letStmt) {
         size = 4;
     }
 
-    // Allocate space
-    // Round up size to multiple of 8 to maintain stack alignment
     int alignedSize = (size + 7) / 8 * 8;
-    
-    // Calculate offset: use the space ending at current nextStackOffset
-    // Formula: base = nextStackOffset - alignedSize + 8
-    // (Assuming nextStackOffset points to the start of the *next* available 8-byte slot, e.g., -8)
     int offset = nextStackOffset - alignedSize + 8;
     nextStackOffset -= alignedSize;
     
@@ -462,29 +458,25 @@ int GenCodeVisitor::visit(LetStm* letStmt) {
         Type::TType rhsType = lastType;
 
         if (tmpl.type == Type::F32 && (rhsType == Type::F64 || rhsType == Type::NOTYPE)) {
-             out << " movq %rax, %xmm0\n";
-             out << " cvtsd2ss %xmm0, %xmm0\n";
-             out << " movd %xmm0, %eax\n";
-             out << " movl %eax, " << tmpl.offset << "(%rbp)\n";
+             targetOut << " movq %rax, %xmm0\n";
+             targetOut << " cvtsd2ss %xmm0, %xmm0\n";
+             targetOut << " movd %xmm0, %eax\n";
+             targetOut << " movl %eax, " << tmpl.offset << "(%rbp)\n";
         } else if (size <= 8) {
             if (size == 4) {
-                 out << " movl %eax, " << tmpl.offset << "(%rbp)\n";
+                 targetOut << " movl %eax, " << tmpl.offset << "(%rbp)\n";
             } else {
-		         out << " movq %rax, " << tmpl.offset << "(%rbp)\n";
+		         targetOut << " movq %rax, " << tmpl.offset << "(%rbp)\n";
             }
         } else {
-            // Copy from source address in %rax to destination address at tmpl.offset(%rbp)
-            out << " movq %rax, %rsi\n"; // Source
-            out << " leaq " << tmpl.offset << "(%rbp), %rdi\n"; // Destination
-            out << " movq $" << size << ", %rcx\n"; // Count
-            out << " rep movsb\n";
+            targetOut << " movq %rax, %rsi\n";
+            targetOut << " leaq " << tmpl.offset << "(%rbp), %rdi\n";
+            targetOut << " movq $" << size << ", %rcx\n";
+            targetOut << " rep movsb\n";
         }
 	} else {
         if (size <= 8) {
-		    out << " movq $0, " << tmpl.offset << "(%rbp)\n";
-        } else {
-            // Zero init large area?
-            // Optional.
+		    targetOut << " movq $0, " << tmpl.offset << "(%rbp)\n";
         }
 	}
 
@@ -492,45 +484,51 @@ int GenCodeVisitor::visit(LetStm* letStmt) {
 }
 
 int GenCodeVisitor::visit(IfStm* ifStmt) {
+	std::ostream& targetOut = bufferingOutput ? tempOutput : out;
+	
 	string elseLabel = makeLabel("else");
 	string endLabel = makeLabel("endif");
 
 	ifStmt->condition->accept(this);
-	out << " cmpq $0, %rax\n";
-	out << " je " << elseLabel << "\n";
+	targetOut << " cmpq $0, %rax\n";
+	targetOut << " je " << elseLabel << "\n";
 
 	if (ifStmt->thenBlock) {
 		ifStmt->thenBlock->accept(this);
 	}
-	out << " jmp " << endLabel << "\n";
+	targetOut << " jmp " << endLabel << "\n";
 
-	out << elseLabel << ":\n";
+	targetOut << elseLabel << ":\n";
 	if (ifStmt->elseBlock) {
 		ifStmt->elseBlock->accept(this);
 	}
-	out << endLabel << ":\n";
+	targetOut << endLabel << ":\n";
 	return 0;
 }
 
 int GenCodeVisitor::visit(WhileStm* whileStmt) {
+	std::ostream& targetOut = bufferingOutput ? tempOutput : out;
+	
 	string startLabel = makeLabel("while_begin");
 	string endLabel = makeLabel("while_end");
 
-	out << startLabel << ":\n";
+	targetOut << startLabel << ":\n";
 	whileStmt->condition->accept(this);
-	out << " cmpq $0, %rax\n";
-	out << " je " << endLabel << "\n";
+	targetOut << " cmpq $0, %rax\n";
+	targetOut << " je " << endLabel << "\n";
 
 	if (whileStmt->body) {
 		whileStmt->body->accept(this);
 	}
 
-	out << " jmp " << startLabel << "\n";
-	out << endLabel << ":\n";
+	targetOut << " jmp " << startLabel << "\n";
+	targetOut << endLabel << ":\n";
 	return 0;
 }
 
 int GenCodeVisitor::visit(ForStm* forStmt) {
+	std::ostream& targetOut = bufferingOutput ? tempOutput : out;
+	
 	symbols.push_scope();
 
 	SymbolInfo tmpl;
@@ -542,63 +540,67 @@ int GenCodeVisitor::visit(ForStm* forStmt) {
 	if (forStmt->start) {
 		forStmt->start->accept(this);
 	} else {
-		out << " movq $0, %rax\n";
+		targetOut << " movq $0, %rax\n";
 	}
-	out << " movq %rax, " << iterInfo.offset << "(%rbp)\n";
+	targetOut << " movq %rax, " << iterInfo.offset << "(%rbp)\n";
 
 	string loopLabel = makeLabel("for_begin");
 	string endLabel = makeLabel("for_end");
 
-	out << loopLabel << ":\n";
+	targetOut << loopLabel << ":\n";
 	if (forStmt->end) {
 		forStmt->end->accept(this);
 	} else {
-		out << " movq $0, %rax\n";
+		targetOut << " movq $0, %rax\n";
 	}
-	out << " movq %rax, %rcx\n";
-	out << " movq " << iterInfo.offset << "(%rbp), %rax\n";
-	out << " cmpq %rcx, %rax\n";
-	out << " jge " << endLabel << "\n";
+	targetOut << " movq %rax, %rcx\n";
+	targetOut << " movq " << iterInfo.offset << "(%rbp), %rax\n";
+	targetOut << " cmpq %rcx, %rax\n";
+	targetOut << " jge " << endLabel << "\n";
 
 	if (forStmt->body) {
 		forStmt->body->accept(this);
 	}
 
-	out << " movq " << iterInfo.offset << "(%rbp), %rax\n";
-	out << " addq $1, %rax\n";
-	out << " movq %rax, " << iterInfo.offset << "(%rbp)\n";
-	out << " jmp " << loopLabel << "\n";
-	out << endLabel << ":\n";
+	targetOut << " movq " << iterInfo.offset << "(%rbp), %rax\n";
+	targetOut << " addq $1, %rax\n";
+	targetOut << " movq %rax, " << iterInfo.offset << "(%rbp)\n";
+	targetOut << " jmp " << loopLabel << "\n";
+	targetOut << endLabel << ":\n";
 
 	symbols.pop_scope();
 	return 0;
 }
 
 int GenCodeVisitor::visit(PrintStm* printStmt) {
+	std::ostream& targetOut = bufferingOutput ? tempOutput : out;  // ⭐ AGREGAR
+	
 	if (!printStmt->e) {
-		out << " movq $0, %rax\n";
+		targetOut << " movq $0, %rax\n";  // ⭐ CAMBIADO
 	} else {
 		printStmt->e->accept(this);
 	}
 
     if (lastType == Type::F32 || lastType == Type::F64) {
-        out << " movq %rax, %xmm0\n";
+        targetOut << " movq %rax, %xmm0\n";
         if (lastType == Type::F32) {
-             out << " cvtss2sd %xmm0, %xmm0\n";
+             targetOut << " cvtss2sd %xmm0, %xmm0\n";
         }
-        out << " leaq print_float_fmt(%rip), %rdi\n";
-        out << " movl $1, %eax\n"; 
-        out << " call printf@PLT\n";
+        targetOut << " leaq print_float_fmt(%rip), %rdi\n";
+        targetOut << " movl $1, %eax\n";
+        targetOut << " call printf@PLT\n";
     } else {
-	    out << " movq %rax, %rsi\n";
-	    out << " leaq print_fmt(%rip), %rdi\n";
-	    out << " movl $0, %eax\n";
-	    out << " call printf@PLT\n";
+	    targetOut << " movq %rax, %rsi\n";
+	    targetOut << " leaq print_fmt(%rip), %rdi\n";
+	    targetOut << " movl $0, %eax\n";
+	    targetOut << " call printf@PLT\n";
     }
 	return 0;
 }
 
 int GenCodeVisitor::visit(AssignStm* assignStmt) {
+	std::ostream& targetOut = bufferingOutput ? tempOutput : out;
+	
 	if (assignStmt->id == "_") {
 		if (assignStmt->e) {
 			assignStmt->e->accept(this);
@@ -614,13 +616,13 @@ int GenCodeVisitor::visit(AssignStm* assignStmt) {
 
 	if (auto* info = lookupSymbol(assignStmt->id)) {
 		info->initialized = true;
-		out << " movq %rax, " << info->offset << "(%rbp)\n";
+		targetOut << " movq %rax, " << info->offset << "(%rbp)\n";
 		return 0;
 	}
 
 	auto globalIt = globalSymbols.find(assignStmt->id);
 	if (globalIt != globalSymbols.end()) {
-		out << " movq %rax, " << globalIt->second << "(%rip)\n";
+		targetOut << " movq %rax, " << globalIt->second << "(%rip)\n";
 		return 0;
 	}
 
@@ -628,12 +630,14 @@ int GenCodeVisitor::visit(AssignStm* assignStmt) {
 }
 
 int GenCodeVisitor::visit(ReturnStm* returnStmt) {
+	std::ostream& targetOut = bufferingOutput ? tempOutput : out;
+	
 	if (returnStmt->e) {
 		returnStmt->e->accept(this);
 	} else {
-		out << " movq $0, %rax\n";
+		targetOut << " movq $0, %rax\n";
 	}
-	out << " jmp " << currentReturnLabel << "\n";
+	targetOut << " jmp " << currentReturnLabel << "\n";
 	return 0;
 }
 
@@ -658,6 +662,8 @@ int GenCodeVisitor::visit(VarDec* varDec) {
 }
 
 int GenCodeVisitor::visit(BinaryExp* exp) {
+	std::ostream& targetOut = bufferingOutput ? tempOutput : out;
+
 	if (exp->op == ASSIGN_OP) {
         if (IdExp* idExp = dynamic_cast<IdExp*>(exp->left)) {
             string name = idExp->value;
@@ -688,24 +694,24 @@ int GenCodeVisitor::visit(BinaryExp* exp) {
 
                 if (info->type == Type::F32 && (rhsType == Type::F64 || rhsType == Type::NOTYPE)) {
                     // Convert double to float
-                    out << " movq %rax, %xmm0\n";
-                    out << " cvtsd2ss %xmm0, %xmm0\n";
-                    out << " movd %xmm0, %eax\n"; // Move 32 bits to eax
-                    out << " movl %eax, " << info->offset << "(%rbp)\n";
+                    targetOut << " movq %rax, %xmm0\n";
+                    targetOut << " cvtsd2ss %xmm0, %xmm0\n";
+                    targetOut << " movd %xmm0, %eax\n"; // Move 32 bits to eax
+                    targetOut << " movl %eax, " << info->offset << "(%rbp)\n";
                     return 0;
                 }
 
                 if (size > 8) {
                     // %rax holds source address
-                    out << " movq %rax, %rsi\n"; // Source
-                    out << " leaq " << info->offset << "(%rbp), %rdi\n"; // Destination
-                    out << " movq $" << size << ", %rcx\n"; // Count
-                    out << " rep movsb\n";
+                    targetOut << " movq %rax, %rsi\n"; // Source
+                    targetOut << " leaq " << info->offset << "(%rbp), %rdi\n"; // Destination
+                    targetOut << " movq $" << size << ", %rcx\n"; // Count
+                    targetOut << " rep movsb\n";
                 } else {
                     if (size == 4) {
-                        out << " movl %eax, " << info->offset << "(%rbp)\n";
+                        targetOut << " movl %eax, " << info->offset << "(%rbp)\n";
                     } else {
-                        out << " movq %rax, " << info->offset << "(%rbp)\n";
+                        targetOut << " movq %rax, " << info->offset << "(%rbp)\n";
                     }
                 }
                 return 0;
@@ -713,7 +719,7 @@ int GenCodeVisitor::visit(BinaryExp* exp) {
 
             auto globalIt = globalSymbols.find(name);
             if (globalIt != globalSymbols.end()) {
-                out << " movq %rax, " << globalIt->second << "(%rip)\n";
+                targetOut << " movq %rax, " << globalIt->second << "(%rip)\n";
                 return 0;
             }
             throw std::runtime_error("Identificador no declarado: " + name);
@@ -731,15 +737,15 @@ int GenCodeVisitor::visit(BinaryExp* exp) {
                  elemSize = 8;
              }
              
-             out << " leaq " << info->offset << "(%rbp), %rax\n";
-             out << " pushq %rax\n"; // Save base
+             targetOut << " leaq " << info->offset << "(%rbp), %rax\n";
+             targetOut << " pushq %rax\n"; // Save base
              
              arrExp->index->accept(this);
-             out << " movq %rax, %rcx\n"; // Index in rcx
-             out << " popq %rax\n"; // Base in rax
+             targetOut << " movq %rax, %rcx\n"; // Index in rcx
+             targetOut << " popq %rax\n"; // Base in rax
              
-             out << " leaq (%rax, %rcx, " << elemSize << "), %rax\n";
-             out << " pushq %rax\n"; // Save element address
+             targetOut << " leaq (%rax, %rcx, " << elemSize << "), %rax\n";
+             targetOut << " pushq %rax\n"; // Save element address
              
              exp->right->accept(this);
              // Result in %rax
@@ -762,108 +768,108 @@ int GenCodeVisitor::visit(BinaryExp* exp) {
 		string endLabel = makeLabel("and_end");
 
 		exp->left->accept(this);
-		out << " cmpq $0, %rax\n";
-		out << " je " << falseLabel << "\n";
+		targetOut << " cmpq $0, %rax\n";
+		targetOut << " je " << falseLabel << "\n";
 		exp->right->accept(this);
-		out << " cmpq $0, %rax\n";
-		out << " je " << falseLabel << "\n";
-		out << " movq $1, %rax\n";
-		out << " jmp " << endLabel << "\n";
-		out << falseLabel << ":\n";
-		out << " movq $0, %rax\n";
-		out << endLabel << ":\n";
+		targetOut << " cmpq $0, %rax\n";
+		targetOut << " je " << falseLabel << "\n";
+		targetOut << " movq $1, %rax\n";
+		targetOut << " jmp " << endLabel << "\n";
+		targetOut << falseLabel << ":\n";
+		targetOut << " movq $0, %rax\n";
+		targetOut << endLabel << ":\n";
 		return 0;
 	}
 
 	exp->left->accept(this);
     Type::TType leftType = lastType;
-	out << " pushq %rax\n";
+	targetOut << " pushq %rax\n";
 	exp->right->accept(this);
     Type::TType rightType = lastType;
-	out << " movq %rax, %rcx\n";
-	out << " popq %rax\n";
+	targetOut << " movq %rax, %rcx\n";
+	targetOut << " popq %rax\n";
 
     bool isFloat = (leftType == Type::F32 || leftType == Type::F64 || rightType == Type::F32 || rightType == Type::F64);
 
     if (isFloat) {
-        out << " movq %rax, %xmm0\n";
-        out << " movq %rcx, %xmm1\n";
+        targetOut << " movq %rax, %xmm0\n";
+        targetOut << " movq %rcx, %xmm1\n";
 
         if (leftType == Type::F32 && rightType == Type::F32) {
              switch (exp->op) {
-                case PLUS_OP: out << " addss %xmm1, %xmm0\n"; break;
-                case MINUS_OP: out << " subss %xmm1, %xmm0\n"; break;
-                case MUL_OP: out << " mulss %xmm1, %xmm0\n"; break;
-                case DIV_OP: out << " divss %xmm1, %xmm0\n"; break;
+                case PLUS_OP: targetOut << " addss %xmm1, %xmm0\n"; break;
+                case MINUS_OP: targetOut << " subss %xmm1, %xmm0\n"; break;
+                case MUL_OP: targetOut << " mulss %xmm1, %xmm0\n"; break;
+                case DIV_OP: targetOut << " divss %xmm1, %xmm0\n"; break;
                 default: throw std::runtime_error("Float op not supported");
             }
             lastType = Type::F32;
         } else {
-            if (leftType == Type::F32) out << " cvtss2sd %xmm0, %xmm0\n";
-            if (rightType == Type::F32) out << " cvtss2sd %xmm1, %xmm1\n";
+            if (leftType == Type::F32) targetOut << " cvtss2sd %xmm0, %xmm0\n";
+            if (rightType == Type::F32) targetOut << " cvtss2sd %xmm1, %xmm1\n";
 
             switch (exp->op) {
-                case PLUS_OP: out << " addsd %xmm1, %xmm0\n"; break;
-                case MINUS_OP: out << " subsd %xmm1, %xmm0\n"; break;
-                case MUL_OP: out << " mulsd %xmm1, %xmm0\n"; break;
-                case DIV_OP: out << " divsd %xmm1, %xmm0\n"; break;
+                case PLUS_OP: targetOut << " addsd %xmm1, %xmm0\n"; break;
+                case MINUS_OP: targetOut << " subsd %xmm1, %xmm0\n"; break;
+                case MUL_OP: targetOut << " mulsd %xmm1, %xmm0\n"; break;
+                case DIV_OP: targetOut << " divsd %xmm1, %xmm0\n"; break;
                 default: throw std::runtime_error("Float op not supported");
             }
             lastType = Type::F64;
         }
-        out << " movq %xmm0, %rax\n";
+        targetOut << " movq %xmm0, %rax\n";
         return 0;
     }
 
 	switch (exp->op) {
 		case PLUS_OP:
-			out << " addq %rcx, %rax\n";
+			targetOut << " addq %rcx, %rax\n";
 			break;
 		case MINUS_OP:
-			out << " subq %rcx, %rax\n";
+			targetOut << " subq %rcx, %rax\n";
 			break;
 		case MUL_OP:
-			out << " imulq %rcx, %rax\n";
+			targetOut << " imulq %rcx, %rax\n";
 			break;
 		case DIV_OP:
-			out << " cqto\n";
-			out << " idivq %rcx\n";
+			targetOut << " cqto\n";
+			targetOut << " idivq %rcx\n";
 			break;
 		case LT_OP:
-			out << " cmpq %rcx, %rax\n";
-			out << " movq $0, %rax\n";
-			out << " setl %al\n";
-			out << " movzbq %al, %rax\n";
+			targetOut << " cmpq %rcx, %rax\n";
+			targetOut << " movq $0, %rax\n";
+			targetOut << " setl %al\n";
+			targetOut << " movzbq %al, %rax\n";
 			break;
 		case GT_OP:
-			out << " cmpq %rcx, %rax\n";
-			out << " movq $0, %rax\n";
-			out << " setg %al\n";
-			out << " movzbq %al, %rax\n";
+			targetOut << " cmpq %rcx, %rax\n";
+			targetOut << " movq $0, %rax\n";
+			targetOut << " setg %al\n";
+			targetOut << " movzbq %al, %rax\n";
 			break;
 		case LE_OP:
-			out << " cmpq %rcx, %rax\n";
-			out << " movq $0, %rax\n";
-			out << " setle %al\n";
-			out << " movzbq %al, %rax\n";
+			targetOut << " cmpq %rcx, %rax\n";
+			targetOut << " movq $0, %rax\n";
+			targetOut << " setle %al\n";
+			targetOut << " movzbq %al, %rax\n";
 			break;
 		case GE_OP:
-			out << " cmpq %rcx, %rax\n";
-			out << " movq $0, %rax\n";
-			out << " setge %al\n";
-			out << " movzbq %al, %rax\n";
+			targetOut << " cmpq %rcx, %rax\n";
+			targetOut << " movq $0, %rax\n";
+			targetOut << " setge %al\n";
+			targetOut << " movzbq %al, %rax\n";
 			break;
 		case EQ_OP:
-			out << " cmpq %rcx, %rax\n";
-			out << " movq $0, %rax\n";
-			out << " sete %al\n";
-			out << " movzbq %al, %rax\n";
+			targetOut << " cmpq %rcx, %rax\n";
+			targetOut << " movq $0, %rax\n";
+			targetOut << " sete %al\n";
+			targetOut << " movzbq %al, %rax\n";
 			break;
 		case NEQ_OP:
-			out << " cmpq %rcx, %rax\n";
-			out << " movq $0, %rax\n";
-			out << " setne %al\n";
-			out << " movzbq %al, %rax\n";
+			targetOut << " cmpq %rcx, %rax\n";
+			targetOut << " movq $0, %rax\n";
+			targetOut << " setne %al\n";
+			targetOut << " movzbq %al, %rax\n";
 			break;
 		case POW_OP:
 			throw std::runtime_error("Operador potencia no soportado en generador");
@@ -875,17 +881,22 @@ int GenCodeVisitor::visit(BinaryExp* exp) {
 }
 
 int GenCodeVisitor::visit(NumberExp* exp) {
-	out << " movq $" << exp->value << ", %rax\n";
+	std::ostream& targetOut = bufferingOutput ? tempOutput : out;
+	
+	targetOut << " movq $" << exp->value << ", %rax\n";
     lastType = Type::I64;
 	return 0;
 }
 
 int GenCodeVisitor::visit(BoolExp* exp) {
-	out << " movq $" << (exp->valor ? 1 : 0) << ", %rax\n";
+	std::ostream& targetOut = bufferingOutput ? tempOutput : out;
+	
+	targetOut << " movq $" << (exp->valor ? 1 : 0) << ", %rax\n";
 	return 0;
 }
 
 int GenCodeVisitor::visit(IdExp* exp) {
+	std::ostream& targetOut = bufferingOutput ? tempOutput : out;
 	if (const auto* info = lookupSymbol(exp->value)) {
         string typeName = resolve_alias(info->typeName);
         int size = 8;
@@ -899,13 +910,13 @@ int GenCodeVisitor::visit(IdExp* exp) {
         }
 
         if (size > 8) {
-             out << " leaq " << info->offset << "(%rbp), %rax\n";
+             targetOut << " leaq " << info->offset << "(%rbp), %rax\n";
         } else {
              if (info->type == Type::F32 || info->type == Type::I32 || info->type == Type::U32) {
-                 out << " movl " << info->offset << "(%rbp), %eax\n";
+                 targetOut << " movl " << info->offset << "(%rbp), %eax\n";
                  // Zero out high bits of rax implicitly by movl
              } else {
-		         out << " movq " << info->offset << "(%rbp), %rax\n";
+		         targetOut << " movq " << info->offset << "(%rbp), %rax\n";
              }
         }
         lastType = info->type;
@@ -914,7 +925,7 @@ int GenCodeVisitor::visit(IdExp* exp) {
 
 	auto it = globalSymbols.find(exp->value);
 	if (it != globalSymbols.end()) {
-		out << " movq " << it->second << "(%rip), %rax\n";
+		targetOut << " movq " << it->second << "(%rip), %rax\n";
         // Global symbols type? We don't track it well in globalSymbols map (it's just name->label).
         // Assuming I64 for now or we need a global symbol table with types.
         lastType = Type::I64; 
@@ -925,13 +936,14 @@ int GenCodeVisitor::visit(IdExp* exp) {
 }
 
 int GenCodeVisitor::visit(FcallExp* exp) {
+	std::ostream& targetOut = bufferingOutput ? tempOutput : out;
 	vector<Exp*> args(exp->argumentos.begin(), exp->argumentos.end());
 	std::size_t totalArgs = args.size();
 	std::size_t stackArgs = totalArgs > kArgRegisters.size() ? totalArgs - kArgRegisters.size() : 0;
 
 	std::size_t stackAdjust = stackArgs * 8;
 	if (stackAdjust % 16 != 0) {
-		out << " subq $8, %rsp\n";
+		targetOut << " subq $8, %rsp\n";
 		stackAdjust += 8;
 	}
 
@@ -940,20 +952,20 @@ int GenCodeVisitor::visit(FcallExp* exp) {
 		if (arg) {
 			arg->accept(this);
 		} else {
-			out << " movq $0, %rax\n";
+			targetOut << " movq $0, %rax\n";
 		}
 
 		if (idx - 1 >= kArgRegisters.size()) {
-			out << " pushq %rax\n";
+			targetOut << " pushq %rax\n";
 		} else {
-			out << " movq %rax, " << kArgRegisters[idx - 1] << "\n";
+			targetOut << " movq %rax, " << kArgRegisters[idx - 1] << "\n";
 		}
 	}
 
-	out << " call " << exp->nombre << "\n";
+	targetOut << " call " << exp->nombre << "\n";
 
 	if (stackAdjust > 0) {
-		out << " addq $" << stackAdjust << ", %rsp\n";
+		targetOut << " addq $" << stackAdjust << ", %rsp\n";
 	}
 	return 0;
 }
@@ -983,9 +995,10 @@ int GenCodeVisitor::visit(StructDec* sd) {
 }
 
 int GenCodeVisitor::visit(ArrayAccessExp* exp) {
+	std::ostream& targetOut = bufferingOutput ? tempOutput : out;
     if (IdExp* id = dynamic_cast<IdExp*>(exp->array)) {
         if (const auto* info = lookupSymbol(id->value)) {
-             out << " leaq " << info->offset << "(%rbp), %rax\n";
+             targetOut << " leaq " << info->offset << "(%rbp), %rax\n";
         } else {
              throw std::runtime_error("Array global no soportado");
         }
@@ -993,32 +1006,33 @@ int GenCodeVisitor::visit(ArrayAccessExp* exp) {
         throw std::runtime_error("Array access only supported on identifiers");
     }
     
-    out << " pushq %rax\n"; 
+    targetOut << " pushq %rax\n"; 
     exp->index->accept(this); 
-    out << " movq %rax, %rcx\n"; 
-    out << " popq %rax\n"; 
+    targetOut << " movq %rax, %rcx\n"; 
+    targetOut << " popq %rax\n"; 
     
-    out << " leaq (%rax, %rcx, 4), %rax\n"; 
-    out << " movl (%rax), %eax\n"; 
-    out << " cltq\n";
+    targetOut << " leaq (%rax, %rcx, 4), %rax\n"; 
+    targetOut << " movl (%rax), %eax\n"; 
+    targetOut << " cltq\n";
     return 0;
 }
 
 int GenCodeVisitor::visit(FieldAccessExp* exp) {
+	std::ostream& targetOut = bufferingOutput ? tempOutput : out;
     if (IdExp* id = dynamic_cast<IdExp*>(exp->object)) {
         if (const auto* info = lookupSymbol(id->value)) {
-             out << " leaq " << info->offset << "(%rbp), %rax\n";
+             targetOut << " leaq " << info->offset << "(%rbp), %rax\n";
              string typeName = resolve_alias(info->typeName);
              if (globalStructLayouts.count(typeName)) {
                  int offset = globalStructLayouts[typeName].offsets[exp->field];
                  string fieldType = globalStructLayouts[typeName].types[exp->field];
-                 out << " addq $" << offset << ", %rax\n";
+                 targetOut << " addq $" << offset << ", %rax\n";
                  
                  if (fieldType == "i64" || fieldType == "u64" || fieldType == "f64") {
-                     out << " movq (%rax), %rax\n";
+                     targetOut << " movq (%rax), %rax\n";
                  } else {
-                     out << " movl (%rax), %eax\n"; 
-                     out << " cltq\n";
+                     targetOut << " movl (%rax), %eax\n"; 
+                     targetOut << " cltq\n";
                  }
                  return 0;
              }
@@ -1028,6 +1042,7 @@ int GenCodeVisitor::visit(FieldAccessExp* exp) {
 }
 
 int GenCodeVisitor::visit(StructInitExp* exp) {
+	std::ostream& targetOut = bufferingOutput ? tempOutput : out;
     string resolvedName = resolve_alias(exp->name);
     if (globalStructLayouts.count(resolvedName)) {
         auto& layout = globalStructLayouts[resolvedName];
@@ -1048,16 +1063,16 @@ int GenCodeVisitor::visit(StructInitExp* exp) {
             expr->accept(this); // Value in %rax
 
             if (ftype == "i32" || ftype == "bool") {
-                out << " movl %eax, " << (structBaseOffset + fieldOffset) << "(%rbp)\n";
+                targetOut << " movl %eax, " << (structBaseOffset + fieldOffset) << "(%rbp)\n";
             } else {
-                out << " movq %rax, " << (structBaseOffset + fieldOffset) << "(%rbp)\n";
+                targetOut << " movq %rax, " << (structBaseOffset + fieldOffset) << "(%rbp)\n";
             }
         }
 
         if (size <= 8) {
-            out << " movq " << structBaseOffset << "(%rbp), %rax\n";
+            targetOut << " movq " << structBaseOffset << "(%rbp), %rax\n";
         } else {
-            out << " leaq " << structBaseOffset << "(%rbp), %rax\n";
+            targetOut << " leaq " << structBaseOffset << "(%rbp), %rax\n";
         }
     }
     return 0;
@@ -1069,11 +1084,12 @@ int GenCodeVisitor::visit(TypeAlias* ta) {
 }
 
 int GenCodeVisitor::visit(FloatExp* exp) {
+	std::ostream& targetOut = bufferingOutput ? tempOutput : out;
     double v = exp->value;
     uint64_t bits;
     std::memcpy(&bits, &v, sizeof(bits));
-    out << " movabsq $" << bits << ", %rax\n";
-    out << " movq %rax, %xmm0\n";
+    targetOut << " movabsq $" << bits << ", %rax\n";
+    targetOut << " movq %rax, %xmm0\n";
     lastType = exp->isDouble ? Type::F64 : Type::F32;
     return 0;
 }
